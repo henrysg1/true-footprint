@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Django",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/true_footprint/manage.py",
+      "args": ["runserver"],
+      "django": true,
+      "autoStartBrowser": false
+    },
+    {
+      "name": "Node: React Frontend",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "${workspaceFolder}/emissions-frontend",
+      "console": "integratedTerminal",
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Launch Full Stack",
+      "configurations": ["Python: Django", "Node: React Frontend"]
+    }
+  ]
+}
