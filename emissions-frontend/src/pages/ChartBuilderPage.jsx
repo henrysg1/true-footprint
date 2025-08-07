@@ -5,6 +5,7 @@ import axios from 'axios';
 
 import CountrySelector from '../components/CountrySelector';
 import YearSelector    from '../components/YearSelector';
+import YearRangeSlider from '../components/YearRangeSlider';
 import BasisToggle     from '../components/BasisToggle';
 import SummaryCard     from '../components/SummaryCard';
 import EmissionsChart  from '../components/EmissionsChart';
@@ -23,6 +24,10 @@ export default function ChartBuilderPage({ isAuth }) {
   // --- Save button state ---
   const [saving,           setSaving]         = useState(false);
   const [saveError,        setSaveError]      = useState(null);
+
+  // --- Year range state ---
+  const [rangeStart,        setRangeStart]     = useState('');
+  const [rangeEnd,        setRangeEnd]       = useState('');
 
   // --- Derived labels & scale ---
   const unitLabel   = viewMode === 'absolute'
@@ -59,7 +64,14 @@ export default function ChartBuilderPage({ isAuth }) {
 
       const yrs = Array.from(new Set(arr.map(d => d.year))).sort();
       setYears(yrs);
-      if (yrs.length) setSelectedYear(String(yrs[yrs.length - 1]));
+
+    if (yrs.length) {
+        const first = String(yrs[0]);
+        const last  = String(yrs[yrs.length-1]);
+        setSelectedYear(last);
+        setRangeStart(first);
+        setRangeEnd(last);
+    }
     })
     .catch(console.error);
   }, [selectedCountry]);
@@ -102,6 +114,13 @@ export default function ChartBuilderPage({ isAuth }) {
     };
   });
 
+  const startNum = Number(rangeStart);
+  const endNum   = Number(rangeEnd);
+  const isRangeValid = startNum <= endNum;
+  const filteredTrendData = isRangeValid
+    ? trendData.filter(d => d.year >= startNum && d.year <= endNum)
+    : [];
+
   // Save handler
   const saveChart = () => {
     const name = prompt('Enter a name for this chart:');
@@ -141,15 +160,53 @@ export default function ChartBuilderPage({ isAuth }) {
         onChange={setSelectedCountry}
       />
       {' '}
-      <YearSelector
-        years={years}
-        selected={selectedYear}
-        onChange={setSelectedYear}
-      />
       <BasisToggle
         viewMode={viewMode}
         onChange={setViewMode}
       />
+
+      {years.length > 0 && (
+       <>
+         <YearRangeSlider
+           min={years[0]}
+           max={years[years.length - 1]}
+           values={[startNum, endNum]}
+           onChange={([s, e]) => {
+             setRangeStart(String(s));
+             setRangeEnd(String(e));
+           }}
+         />
+         <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
+           <div>
+             <label>From: </label>
+             <input
+               type="number"
+               value={rangeStart}
+               min={years[0]}
+               max={years[years.length - 1]}
+               onChange={e => setRangeStart(e.target.value)}
+               style={{ width: '4rem' }}
+             />
+           </div>
+           <div>
+             <label>To: </label>
+             <input
+               type="number"
+               value={rangeEnd}
+               min={years[0]}
+               max={years[years.length - 1]}
+               onChange={e => setRangeEnd(e.target.value)}
+               style={{ width: '4rem' }}
+             />
+           </div>
+         </div>
+         {!isRangeValid && (
+           <p style={{ color:'red', textAlign: 'center' }}>
+             Start year must be ≤ end year
+           </p>
+         )}
+       </>
+     )}
 
       {summary && (
         <div className="summary-card">
@@ -163,7 +220,7 @@ export default function ChartBuilderPage({ isAuth }) {
 
       <div style={{ width: '100%' }}>
         <EmissionsChart
-          data={trendData}
+          data={filteredTrendData}
           unitLabel={unitLabel}
         />
       </div>
