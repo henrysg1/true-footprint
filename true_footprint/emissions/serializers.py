@@ -1,6 +1,5 @@
 from rest_framework import serializers
-from .models import Country, Emission
-from .models import Population
+from .models import Country, Emission, Population, Dashboard, Chart
 
 
 class CountrySerializer(serializers.ModelSerializer):
@@ -33,3 +32,15 @@ class EmissionSerializer(serializers.ModelSerializer):
         if pop_val:
             return obj.value / pop_val
         return None
+
+
+class ChartSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Chart
+        fields = ['id', 'name', 'config']
+
+class DashboardSerializer(serializers.ModelSerializer):
+    charts = ChartSerializer(many=True, read_only=True)
+    class Meta:
+        model = Dashboard
+        fields = ['id', 'name', 'charts']

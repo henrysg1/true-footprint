@@ -1,9 +1,10 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Country, Emission, Population
-from .serializers import CountrySerializer, EmissionSerializer
+from .models import Country, Emission, Population, Dashboard, Chart
+from .serializers import CountrySerializer, EmissionSerializer, DashboardSerializer, ChartSerializer
+
 
 class CountryViewSet(viewsets.ReadOnlyModelViewSet):
     """List and retrieve countries"""
@@ -62,3 +63,21 @@ class EmissionViewSet(viewsets.ReadOnlyModelViewSet):
           'per_capita_consumption':
               (cons.value / pop_val) if (cons and pop_val) else None,
         })
+
+
+class DashboardViewSet(viewsets.ModelViewSet):
+    serializer_class = DashboardSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    def get_queryset(self):
+        return Dashboard.objects.filter(owner=self.request.user)
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+class ChartViewSet(viewsets.ModelViewSet):
+    serializer_class = ChartSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    def get_queryset(self):
+        return Chart.objects.filter(dashboard__owner=self.request.user)
+    def perform_create(self, serializer):
+        dash_id = self.request.data.get('dashboard')
+        serializer.save(dashboard_id=dash_id)

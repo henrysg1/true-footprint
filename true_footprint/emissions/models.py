@@ -1,5 +1,7 @@
 from django.db import models
 
+from true_footprint import settings
+
 class Country(models.Model):
     name = models.CharField(max_length=100, unique=True)
     iso_code = models.CharField(max_length=3, unique=True)
@@ -44,3 +46,21 @@ class Emission(models.Model):
 
     def __str__(self):
         return f"{self.country.iso_code} - {self.year} ({self.basis})"
+    
+
+# User Saving Models
+
+class Dashboard(models.Model):
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL,
+                              on_delete=models.CASCADE,
+                              related_name='dashboards')
+    name = models.CharField(max_length=100)
+    created = models.DateTimeField(auto_now_add=True)
+
+class Chart(models.Model):
+    dashboard = models.ForeignKey(Dashboard,
+                                  on_delete=models.CASCADE,
+                                  related_name='charts')
+    name = models.CharField(max_length=100)
+    # replayable JSON blob describing series and layout
+    config = models.JSONField()
