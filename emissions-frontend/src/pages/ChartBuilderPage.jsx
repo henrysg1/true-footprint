@@ -1,25 +1,31 @@
 // src/pages/ChartBuilderPage.jsx
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 import CountrySelector from '../components/CountrySelector';
-import YearSelector    from '../components/YearSelector';
 import YearRangeSlider from '../components/YearRangeSlider';
 import BasisToggle     from '../components/BasisToggle';
 import SummaryCard     from '../components/SummaryCard';
 import EmissionsChart  from '../components/EmissionsChart';
+import MetricMultiSelect from '../components/MetricMultiSelect';
 
 const API = import.meta.env.VITE_API_BASE_URL;
 
 export default function ChartBuilderPage({ isAuth }) {
-  // --- Core state (same as before) ---
+  const navigate = useNavigate();
+  // --- Core state ---
   const [countries,        setCountries]      = useState([]);
   const [selectedCountry,  setSelectedCountry]= useState('');
-  const [emissionsData,    setEmissionsData]  = useState([]);
   const [years,            setYears]          = useState([]);
   const [selectedYear,     setSelectedYear]   = useState('');
   const [viewMode,         setViewMode]       = useState('absolute');
+
+  const [allIndicators, setAllIndicators] = useState([]);
+  const [selectedMetrics, setSelectedMetrics] = useState(['co2']);
+  const [tsData, setTsData] = useState([]);
+  const [unitsMap, setUnitsMap] = useState({});
 
   // --- Save button state ---
   const [saving,           setSaving]         = useState(false);
@@ -34,6 +40,16 @@ export default function ChartBuilderPage({ isAuth }) {
     ? 'Mt CO₂'
     : 't CO₂ per person';
   const scaleFactor = viewMode === 'absolute' ? 1 : 1_000_000;
+
+  useEffect(() => {
+    axios.get(`${API}/api/indicators/`)
+    .then(res => {
+      const list = Array.isArray(res.data) ? res.data : res.data.results || res.data;
+       // Optional: filter to a curated subset if you prefer
+      setAllIndicators(list);
+     })
+     .catch(console.error);
+  }, []);
 
   // 1) load country list
   useEffect(() => {
@@ -60,7 +76,6 @@ export default function ChartBuilderPage({ isAuth }) {
       const arr = Array.isArray(res.data)
         ? res.data
         : res.data.results || [];
-      setEmissionsData(arr);
 
       const yrs = Array.from(new Set(arr.map(d => d.year))).sort();
       setYears(yrs);
@@ -76,50 +91,40 @@ export default function ChartBuilderPage({ isAuth }) {
     .catch(console.error);
   }, [selectedCountry]);
 
-  // helper: build summary for the selected year & viewMode
-  const summary = (() => {
-    if (!selectedYear) return null;
-    const terr = emissionsData.find(d =>
-      d.basis === 'territorial' && d.year === selectedYear
-    );
-    const cons = emissionsData.find(d =>
-      d.basis === 'consumption' && d.year === selectedYear
-    );
-    if (!terr || !cons) return null;
-
-    return viewMode === 'absolute'
-      ? { territorial: terr.value, consumption: cons.value }
-      : {
-          territorial: terr.per_capita * scaleFactor,
-          consumption: cons.per_capita * scaleFactor
-        };
-  })();
-
-  // helper: prepare trend data across years
-  const trendData = years.map(year => {
-    const terr = emissionsData.find(d =>
-      d.basis === 'territorial' && d.year === year
-    );
-    const cons = emissionsData.find(d =>
-      d.basis === 'consumption' && d.year === year
-    );
-    return {
-      year,
-      territorial: viewMode === 'absolute'
-        ? terr?.value
-        : terr?.per_capita * scaleFactor,
-      consumption: viewMode === 'absolute'
-        ? cons?.value
-        : cons?.per_capita * scaleFactor
-    };
-  });
-
   const startNum = Number(rangeStart);
   const endNum   = Number(rangeEnd);
-  const isRangeValid = startNum <= endNum;
-  const filteredTrendData = isRangeValid
-    ? trendData.filter(d => d.year >= startNum && d.year <= endNum)
-    : [];
+  const isRangeValid = !Number.isNaN(startNum) && !Number.isNaN(endNum) && startNum <= endNum;
+
+  useEffect(() => {
+    if (!selectedCountry || !selectedMetrics.length || !isRangeValid) {
+      setTsData([]); setUnitsMap({});
+      return;
+    }
+    axios.get(`${API}/api/observations/timeseries/`, {
+      params: {
+        country__iso_code: selectedCountry,
+        indicators: selectedMetrics.join(','),
+        year_min: startNum,
+        year_max: endNum
+      }
+    })
+    .then(res => {
+      setTsData(res.data?.data || []);
+      setUnitsMap(res.data?.units || {});
+    })
+    .catch(console.error);
+  }, [selectedCountry, selectedMetrics, startNum, endNum, isRangeValid]);
+
+  const yearForSummary = Number(selectedYear) || endNum;
+  const row = tsData.find(r => r.year === yearForSummary) || tsData[tsData.length - 1];
+
+  const summary = row ? {
+    // show the first two selected metrics, if present
+    aLabel: selectedMetrics[0],
+    aValue: row[selectedMetrics[0]],
+    bLabel: selectedMetrics[1],
+    bValue: row[selectedMetrics[1]],
+  } : null;
 
   // Save handler
   const saveChart = () => {
@@ -137,7 +142,9 @@ export default function ChartBuilderPage({ isAuth }) {
     };
 
     axios.post(`${API}/api/charts/`, { name, config })
-      .then(() => alert('Chart saved!'))
+      .then(res => {
+        navigate(`/chart/${res.data.id}`);
+      })
       .catch(err => setSaveError(err.response?.data || err.message))
       .finally(() => setSaving(false));
   };
@@ -159,11 +166,14 @@ export default function ChartBuilderPage({ isAuth }) {
         selected={selectedCountry}
         onChange={setSelectedCountry}
       />
-      {' '}
-      <BasisToggle
-        viewMode={viewMode}
-        onChange={setViewMode}
-      />
+
+      <div style={{ width:'100%', display: 'flex', justifyContent: 'center', gap: '1rem' }}>
+        <MetricMultiSelect
+          indicators={allIndicators}
+          value={selectedMetrics}
+          onChange={setSelectedMetrics}
+        />
+      </div>
 
       {years.length > 0 && (
        <>
@@ -208,22 +218,13 @@ export default function ChartBuilderPage({ isAuth }) {
        </>
      )}
 
-      {summary && (
-        <div className="summary-card">
-            <SummaryCard
-                territorial={summary.territorial}
-                consumption={summary.consumption}
-                unitLabel={unitLabel}
-            />
-        </div>
-      )}
-
-      <div style={{ width: '100%' }}>
-        <EmissionsChart
-          data={filteredTrendData}
-          unitLabel={unitLabel}
-        />
-      </div>
+    <div style={{ width: '100%' }}>
+      <EmissionsChart
+        data={tsData}
+        unitsMap={unitsMap}
+        seriesKeys={selectedMetrics}
+      />
+    </div>
 
       {isAuth ? (
         <button

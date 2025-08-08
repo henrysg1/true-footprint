@@ -2,6 +2,7 @@ from django.db import models
 
 from true_footprint import settings
 
+
 class Country(models.Model):
     name = models.CharField(max_length=100, unique=True)
     iso_code = models.CharField(max_length=3, unique=True)
@@ -9,6 +10,7 @@ class Country(models.Model):
     def __str__(self):
         return self.name
     
+
 class Population(models.Model):
     country    = models.ForeignKey(
         Country,
@@ -26,6 +28,7 @@ class Population(models.Model):
 
     def __str__(self):
         return f"{self.country.iso_code} - {self.year}: {self.population}"
+
 
 class Emission(models.Model):
     TERRITORIAL = 'territorial'
@@ -48,6 +51,33 @@ class Emission(models.Model):
         return f"{self.country.iso_code} - {self.year} ({self.basis})"
     
 
+class Indicator(models.Model):
+    code = models.CharField(max_length=64, unique=True)  # e.g., "co2", "co2_per_capita"
+    name = models.CharField(max_length=255)
+    unit = models.CharField(max_length=64, blank=True)
+    description = models.TextField(blank=True)
+    source = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} ({self.unit})"
+
+class Observation(models.Model):
+    country = models.ForeignKey("emissions.Country", on_delete=models.CASCADE, related_name="observations")
+    year = models.PositiveIntegerField()
+    indicator = models.ForeignKey(Indicator, on_delete=models.CASCADE, related_name="observations")
+    value = models.FloatField()
+
+    class Meta:
+        unique_together = ("country", "year", "indicator")
+        ordering = ["country__iso_code", "year", "indicator__code"]
+
+    def __str__(self):
+        return f"{self.country.iso_code}-{self.year}-{self.indicator.code}: {self.value}"
+    
+
 # User Saving Models
 
 class Dashboard(models.Model):
@@ -57,10 +87,17 @@ class Dashboard(models.Model):
     name = models.CharField(max_length=100)
     created = models.DateTimeField(auto_now_add=True)
 
+
 class Chart(models.Model):
-    dashboard = models.ForeignKey(Dashboard,
-                                  on_delete=models.CASCADE,
-                                  related_name='charts')
-    name = models.CharField(max_length=100)
-    # replayable JSON blob describing series and layout
-    config = models.JSONField()
+    owner   = models.ForeignKey('auth.User', null=True, blank=True,
+                                on_delete=models.SET_NULL, related_name='charts')
+    name    = models.CharField(max_length=150)
+    config  = models.JSONField()          # whatever you POST from the UI
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated']
+
+    def __str__(self):
+        return self.name

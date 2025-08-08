@@ -1,10 +1,20 @@
 from rest_framework import viewsets, permissions
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Country, Emission, Population, Dashboard, Chart
-from .serializers import CountrySerializer, EmissionSerializer, DashboardSerializer, ChartSerializer
+from .models import Country, Emission, Population, Dashboard, Chart, Indicator, Observation
+from .serializers import CountrySerializer, EmissionSerializer, DashboardSerializer, ChartSerializer, IndicatorSerializer, ObservationSerializer
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def auth_check(request):
+    return Response({'ok': True, 'user': request.user.username})
+
+
+class IsAuthenticatedOrReadOnly(permissions.IsAuthenticatedOrReadOnly):
+    pass
 
 class CountryViewSet(viewsets.ReadOnlyModelViewSet):
     """List and retrieve countries"""
@@ -12,6 +22,7 @@ class CountryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CountrySerializer
     filter_backends = [DjangoFilterBackend]
     search_fields = ['name', 'iso_code']
+
 
 class EmissionViewSet(viewsets.ReadOnlyModelViewSet):
     """List and filter emissions"""
@@ -65,6 +76,50 @@ class EmissionViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
 
+class IndicatorViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Indicator.objects.all()
+    serializer_class = IndicatorSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["code"]
+
+class ObservationViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Observation.objects.select_related("country", "indicator")
+    serializer_class = ObservationSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["country__iso_code", "indicator__code", "year"]
+
+    @action(detail=False, methods=["get"], url_path="timeseries")
+    def timeseries(self, request):
+        """
+        Returns a tidy array [{year, <code1>: val, <code2>: val, ...}, ...]
+        plus a units map for the selected indicators.
+        """
+        iso = request.query_params.get("country__iso_code")
+        codes_csv = request.query_params.get("indicators", "")
+        year_min = request.query_params.get("year_min")
+        year_max = request.query_params.get("year_max")
+
+        if not iso or not codes_csv:
+            return Response({"detail": "country__iso_code and indicators are required."}, status=400)
+
+        codes = [c.strip() for c in codes_csv.split(",") if c.strip()]
+        qs = self.get_queryset().filter(country__iso_code=iso, indicator__code__in=codes)
+        if year_min:
+            qs = qs.filter(year__gte=year_min)
+        if year_max:
+            qs = qs.filter(year__lte=year_max)
+
+        qs = qs.order_by("year", "indicator__code")
+        years = sorted({o.year for o in qs})
+        rows_by_year = {y: {"year": y} for y in years}
+        for o in qs:
+            rows_by_year[o.year][o.indicator.code] = o.value
+        data = [rows_by_year[y] for y in years]
+
+        units = {ind.code: ind.unit for ind in Indicator.objects.filter(code__in=codes)}
+        return Response({"data": data, "units": units})
+
+
 class DashboardViewSet(viewsets.ModelViewSet):
     serializer_class = DashboardSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -73,11 +128,17 @@ class DashboardViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
+
 class ChartViewSet(viewsets.ModelViewSet):
+    queryset = Chart.objects.all()
     serializer_class = ChartSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
     def get_queryset(self):
-        return Chart.objects.filter(dashboard__owner=self.request.user)
+            qs = super().get_queryset()
+            if self.request.query_params.get('mine') and self.request.user.is_authenticated:
+                qs = qs.filter(owner=self.request.user)
+            return qs
+
     def perform_create(self, serializer):
-        dash_id = self.request.data.get('dashboard')
-        serializer.save(dashboard_id=dash_id)
+        serializer.save(owner=self.request.user if self.request.user.is_authenticated else None)

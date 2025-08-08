@@ -8,6 +8,8 @@ import SavedChartsPage    from './pages/SavedChartsPage';
 import ChartViewPage      from './pages/ChartViewPage';
 import LoginPage          from './pages/LoginPage';
 
+const API = import.meta.env.VITE_API_BASE_URL;
+
 export default function App() {
   const [isAuth, setIsAuth] = useState(false);
 
@@ -16,8 +18,17 @@ export default function App() {
     const token = localStorage.getItem('access_token');
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      setIsAuth(true);
     }
+
+    axios.get(`${API}/api/auth-check/`)
+      .then(() => setIsAuth(true))
+      .catch(() => {
+        // token missing/expired/invalid → clean up and show Login
+        delete axios.defaults.headers.common['Authorization'];
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        setIsAuth(false);
+      });
   }, []);
 
   const handleLogout = () => {
