@@ -1,4 +1,4 @@
-from rest_framework import viewsets, permissions
+from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -15,6 +15,14 @@ def auth_check(request):
 
 class IsAuthenticatedOrReadOnly(permissions.IsAuthenticatedOrReadOnly):
     pass
+
+
+class IsOwnerOrReadOnly(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return obj.owner_id == getattr(request.user, 'id', None)
+
 
 class CountryViewSet(viewsets.ReadOnlyModelViewSet):
     """List and retrieve countries"""
@@ -132,13 +140,29 @@ class DashboardViewSet(viewsets.ModelViewSet):
 class ChartViewSet(viewsets.ModelViewSet):
     queryset = Chart.objects.all()
     serializer_class = ChartSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
 
     def get_queryset(self):
-            qs = super().get_queryset()
-            if self.request.query_params.get('mine') and self.request.user.is_authenticated:
-                qs = qs.filter(owner=self.request.user)
-            return qs
+        qs = super().get_queryset()
+        if self.request.query_params.get('mine') and self.request.user.is_authenticated:
+            qs = qs.filter(owner=self.request.user)
+        return qs
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user if self.request.user.is_authenticated else None)
+        serializer.save(owner=self.request.user)
+
+    @action(detail=False, methods=['post'])
+    def upsert(self, request):
+        """Create or update by (owner, name)."""
+        if not request.user.is_authenticated:
+            return Response({'detail': 'Authentication required'}, status=401)
+        name = request.data.get('name')
+        config = request.data.get('config')
+        if not name:
+            return Response({'detail': 'name is required'}, status=400)
+        obj, created = Chart.objects.update_or_create(
+            owner=request.user, name=name,
+            defaults={'config': config}
+        )
+        data = self.get_serializer(obj).data
+        return Response(data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)

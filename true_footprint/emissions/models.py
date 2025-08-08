@@ -92,12 +92,15 @@ class Chart(models.Model):
     owner   = models.ForeignKey('auth.User', null=True, blank=True,
                                 on_delete=models.SET_NULL, related_name='charts')
     name    = models.CharField(max_length=150)
-    config  = models.JSONField()          # whatever you POST from the UI
+    config  = models.JSONField()
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-updated']
+        constraints = [
+            models.UniqueConstraint(fields=['owner', 'name'], name='uniq_owner_name')
+        ]
 
     def __str__(self):
         return self.name
